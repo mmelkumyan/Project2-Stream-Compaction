@@ -3,8 +3,6 @@
 #include "common.h"
 #include "naive.h"
 
-
-
 namespace StreamCompaction {
     namespace Naive {
         using StreamCompaction::Common::PerformanceTimer;
