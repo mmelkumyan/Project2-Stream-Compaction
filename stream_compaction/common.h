@@ -13,10 +13,23 @@
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 
+inline int blockSize = 128;
+
 /**
  * Check for CUDA errors; print and exit if there was a problem.
  */
 void checkCUDAErrorFn(const char *msg, const char *file = NULL, int line = -1);
+
+#ifdef __CUDACC__
+__device__ inline bool indexIsValid(int N, int& index) {
+    index = blockIdx.x * blockDim.x + threadIdx.x;
+    return index < N;
+}
+#endif
+
+inline unsigned divup(unsigned size, unsigned div) {
+    return (size + div - 1) / div;
+}
 
 inline int ilog2(int x) {
     int lg = 0;
@@ -28,6 +41,10 @@ inline int ilog2(int x) {
 
 inline int ilog2ceil(int x) {
     return x == 1 ? 0 : ilog2(x - 1) + 1;
+}
+
+inline int iTwoPow(int pow) {
+    return 1 << pow;
 }
 
 namespace StreamCompaction {
