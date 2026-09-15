@@ -21,13 +21,21 @@ namespace StreamCompaction {
             idata[k + twoDPlusOne - 1] += idata[k + twoD - 1];
         }
 
-        // __global__ void kernDownSweep(int n, int *odata, const int *idata) {
-        //     // Get thread index
-        //     int k;
-        //     if (!indexIsValid(n, k)) return;
+        __global__ void kernDownSweep(int num_threads, int twoD, int twoDPlusOne, int *idata) {
+            // Get thread index
+            int k;
+            if (!indexIsValid(num_threads, k)) return;
+            k = k * twoDPlusOne;
+
+            // Save left child
+            int leftChild = idata[k + twoD - 1];
             
-        //     // TODO
-        // }
+            // Set left child to this node's value
+            idata[k + twoD - 1] = idata[k + twoDPlusOne - 1];
+
+            // Set right child to old left child + this node
+            idata[k + twoDPlusOne - 1] += leftChild;
+        }
 
         /**
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
@@ -41,24 +49,18 @@ namespace StreamCompaction {
             cudaMalloc((void**)&dev_idata, targetCnt * sizeof(int));
             checkCUDAError("cudaMalloc dev_idata failed!");
 
-            // Copy memory from host->device
-            //cudaMemcpy(dev_idata, idata, n * sizeof(int), cudaMemcpyHostToDevice); // Copy real data
-            //checkCUDAError("cudaMemcpy dev_idata failed!");
-            //cudaMemset(dev_idata + n, 0, (targetCnt-n) * sizeof(int)); // Pad with zeros
-            //checkCUDAError("cudaMemset dev_idata failed!");
-
-            cudaMemset(dev_idata, 0, targetCnt * sizeof(int)); // Pad with zeros
+            // Pad with zeros 
+            cudaMemset(dev_idata, 0, targetCnt * sizeof(int)); 
             checkCUDAError("cudaMemset dev_idata failed!");
-            cudaMemcpy(dev_idata, idata, n * sizeof(int), cudaMemcpyHostToDevice); // Copy real data
+            // Copy real data
+            cudaMemcpy(dev_idata, idata, n * sizeof(int), cudaMemcpyHostToDevice); 
             checkCUDAError("cudaMemcpy dev_idata failed!");
-
-            // DEBUG
-            // cudaMemcpy(odata, dev_idata, n * sizeof(int), cudaMemcpyDeviceToHost);
             
             // ----------------------------------
             // UP SWEEP
             int maxd = ilog2ceil(n) - 1;
             timer().startGpuTimer();
+            // Traverse binary tree up
             for (int d=0; d<=maxd; d++) {
                 int twoD = iTwoPow(d);
                 int twoDPlusOne = iTwoPow(d+1);
@@ -68,20 +70,39 @@ namespace StreamCompaction {
                 int fullBlocksPerGrid = divup(n_d, blockSize);
                 kernUpSweep<<<fullBlocksPerGrid, blockSize>>>(n_d, twoD, twoDPlusOne, dev_idata);
             }
-            timer().endGpuTimer();
-            checkCUDAError("kernScan failed!");
-        
-            // DOWN SWEEP
-            // ----------------------------------
-            // TODO...
+            checkCUDAError("kernUpSweep failed!");
 
+            // DEBUG
+            // int* dbg = new int[targetCnt];
+            // cudaMemcpy(dbg, dev_idata, targetCnt * sizeof(int), cudaMemcpyDeviceToHost);
+            // printf("targetCnt = %d, root = %d\n", targetCnt, dbg[targetCnt - 1]);
+        
+            // ----------------------------------
+            // DOWN SWEEP
+
+            // Set root to zero
+            cudaMemset(dev_idata + targetCnt - 1, 0, sizeof(int));
+            // Traverse binary tree down
+            for (int d=maxd; d>=0; d--) {
+                int twoD = iTwoPow(d);
+                int twoDPlusOne = iTwoPow(d+1);
+                
+                // Threads for this loop
+                int n_d = targetCnt / twoDPlusOne;
+                int fullBlocksPerGrid = divup(n_d, blockSize);
+                kernDownSweep<<<fullBlocksPerGrid, blockSize>>>(n_d, twoD, twoDPlusOne, dev_idata);
+            }
+            timer().endGpuTimer();
+            checkCUDAError("kernDownSweep failed!");
 
             // ----------------------------------
             // Copy memory from device->host
             cudaMemcpy(odata, dev_idata, n * sizeof(int), cudaMemcpyDeviceToHost);
 
-
-
+            // DEBUG
+            // cudaMemcpy(dbg, dev_idata, targetCnt * sizeof(int), cudaMemcpyDeviceToHost);
+            // printf("targetCnt = %d, root = %d\n", targetCnt, dbg[targetCnt - 1]);
+            // delete[] dbg;
 
             // Cleanup
             cudaFree(dev_idata);
